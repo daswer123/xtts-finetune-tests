@@ -7,6 +7,10 @@ I'm an enthusiast and just testing and trying, don't expect it to work _
 
 1. The basic idea is taken from here https://github.com/coqui-ai/TTS/issues/3704
 
+### Example
+
+![image](https://github.com/daswer123/xtts-finetune-tests/assets/22278673/e99e4628-6b2e-414a-ab5b-9a9f72a5049f)
+
 # GPT-2 (Work in progress )
 
 # HifiGAN ( Work in progress )
