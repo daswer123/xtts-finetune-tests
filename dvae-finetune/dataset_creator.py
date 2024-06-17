@@ -19,7 +19,7 @@ def process_audio_files(input_dir, output_dir, sample_rate=22050):
         )
         print(f'Processed {audio_file} to {output_file}')
 
-if __name__ == "__main__":
+if __name__== "__main__":
     input_directory = 'path/to/input_directory'
     output_directory = 'path/to/output_directory'
     process_audio_files(input_directory, output_directory)

@@ -1,2 +1,6 @@
  axial-positional-embedding
  coqui-tts
+ einops
+ torch
+ torchaudio
+ 
