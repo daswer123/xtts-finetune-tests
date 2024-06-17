@@ -13,6 +13,7 @@ class DVAEDataset(torch.utils.data.Dataset):
         self.samples = samples
         self.training_seed = 1
         self.failed_samples = set()
+        
         if not is_eval:
             random.seed(self.training_seed)
             random.shuffle(self.samples)

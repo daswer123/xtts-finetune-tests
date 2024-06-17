@@ -164,3 +164,8 @@ cython_debug/
 *.pth
 *.txt
 *.mp3
+*.json
+*.wandb
+*.yaml
+*.csv
+/dvae-finetune/LJSpeech-1.1

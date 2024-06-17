@@ -1,51 +1,50 @@
 import os
+import json
 import wandb
 import torch
 from torch.optim import Adam
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
 
-from TTS.tts.datasets import load_tts_samples
-from TTS.config.shared_configs import BaseDatasetConfig
 from TTS.tts.layers.xtts.dvae import DiscreteVAE
-
 from libs.utils import TorchMelSpectrogram
 from libs.dvae_dataset import DVAEDataset
 
-# Define hyperparameters
-DVAE_CHECKPOINT = 'base_model/dvae.pth'
-MEL_NORM_FILE = 'base_model/mel_stats.pth'
-DATASET_PATH = 'dataset_ready'
-USE_CUSTOM_DATASET = True
+# Define hyperparameters and constants for optimization
+DVAE_CHECKPOINT = './base_model/dvae.pth'
+MEL_NORM_FILE = './base_model/mel_stats.pth'
+DATASET_PATH = './dataset_ready'
 EPOCHS = 20
-BATCH_SIZE = 3
+BATCH_SIZE = 10
 LEARNING_RATE = 5e-05
 
-def load_custom_samples(dataset_path):
-    """Load custom dataset using TTS load_tts_samples function."""
-    config_dataset = BaseDatasetConfig(
-        formatter="ljspeech",
-        dataset_name="custom_dataset",
-        path=dataset_path,
-        meta_file_train=f"{dataset_path}/metadata_train.txt",
-        meta_file_val=f"{dataset_path}/metadata_eval.txt",
-        language="en",
-    )
+NUM_WORKERS = 8  # Number of workers for data loading
+GRAD_CLIP_NORM = 0.5  # Gradient clipping norm value
 
-    DATASETS_CONFIG_LIST = [config_dataset]
-    train_samples, eval_samples = load_tts_samples(
-        DATASETS_CONFIG_LIST,
-        eval_split=True,
-        eval_split_max_size=256,
-        eval_split_size=0.01,
-    )
+# Enable mixed precision training if available
+USE_MIXED_PRECISION = True if torch.cuda.is_available() else False
+
+def load_custom_dataset(dataset_path, language):
+    metadata_train_file = os.path.join(dataset_path, f'metadata_train_{language}.txt')
+    metadata_eval_file = os.path.join(dataset_path, f'metadata_eval_{language}.txt')
+
+    with open(metadata_train_file, 'r') as f:
+        train_samples = [{'audio_file': line.strip(), 'language': language} for line in f]
+
+    with open(metadata_eval_file, 'r') as f:
+        eval_samples = [{'audio_file': line.strip(), 'language': language} for line in f]
 
     return train_samples, eval_samples
 
-def train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, epochs=20, batch_size=3, learning_rate=5e-05, use_custom_dataset=False):
+def train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, epochs=20, batch_size=3, learning_rate=5e-05):
     """Train DVAE model on custom dataset."""
 
-    # Step 1: Load DVAE model
+    # Step 1: Load language from config.json
+    with open(os.path.join(dataset_path, 'config.json'), 'r') as f:
+        config = json.load(f)
+    language = config['language']
+
+    # Step 2: Load DVAE model
     dvae = DiscreteVAE(
         channels=80,
         normalization=None,
@@ -61,31 +60,17 @@ def train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, epochs=20, batch_si
     dvae.load_state_dict(torch.load(dvae_checkpoint), strict=False)
     dvae.cuda()
 
-    # Step 2: Set up optimizer and mel spectrogram converter
+    # Use mixed precision if enabled
+    scaler = torch.cuda.amp.GradScaler(enabled=USE_MIXED_PRECISION)
+
+    # Step 3: Set up optimizer and mel spectrogram converter
     opt = Adam(dvae.parameters(), lr=learning_rate)
     torch_mel_spectrogram_dvae = TorchMelSpectrogram(
         mel_norm_file=mel_norm_file, sampling_rate=22050
     ).cuda()
 
-    # Step 3: Load dataset
-    if use_custom_dataset:
-        train_samples, eval_samples = load_custom_samples(dataset_path)
-    else:
-        config_dataset = BaseDatasetConfig(
-            formatter="ljspeech",
-            dataset_name="ljspeech",
-            path=dataset_path,
-            meta_file_train=f"{dataset_path}/metadata_norm.txt",
-            language="en",
-        )
-
-        DATASETS_CONFIG_LIST = [config_dataset]
-        train_samples, eval_samples = load_tts_samples(
-            DATASETS_CONFIG_LIST,
-            eval_split=True,
-            eval_split_max_size=256,
-            eval_split_size=0.01,
-        )
+    # Step 4: Load dataset
+    train_samples, eval_samples = load_custom_dataset(dataset_path, language)
 
     eval_dataset = DVAEDataset(eval_samples, 22050, True)
     train_dataset = DVAEDataset(train_samples, 22050, False)
@@ -96,26 +81,28 @@ def train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, epochs=20, batch_si
         shuffle=False,
         drop_last=False,
         collate_fn=eval_dataset.collate_fn,
-        num_workers=0,
-        pin_memory=False,
+        num_workers=NUM_WORKERS // 2,
+        pin_memory=True,
     )
 
     train_data_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=True,
         drop_last=False,
         collate_fn=train_dataset.collate_fn,
-        num_workers=4,
-        pin_memory=False,
+        num_workers=NUM_WORKERS,
+        pin_memory=True,
     )
 
-    # Step 4: Set up training
+    # Step 5: Set up training with gradient accumulation and profiling (if needed)
+    accumulation_steps = max(1, BATCH_SIZE // batch_size)
+    
     torch.set_grad_enabled(True)
     dvae.train()
     wandb.init(project='train_dvae')
     wandb.watch(dvae)
-
+    
     def to_cuda(x: torch.Tensor) -> torch.Tensor:
         if x is None:
             return None
@@ -124,7 +111,7 @@ def train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, epochs=20, batch_si
             if torch.cuda.is_available():
                 x = x.cuda(non_blocking=True)
         return x
-
+    
     @torch.no_grad()
     def format_batch(batch):
         if isinstance(batch, dict):
@@ -132,9 +119,12 @@ def train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, epochs=20, batch_si
                 batch[k] = to_cuda(v)
         elif isinstance(batch, list):
             batch = [to_cuda(v) for v in batch]
-
+    
         try:
-            batch['mel'] = torch_mel_spectrogram_dvae(batch['wav'])
+            # Переносим вычисление мел-спектрограммы на GPU
+            wavs = to_cuda(batch['wav'])
+            batch['mel'] = torch_mel_spectrogram_dvae(wavs)
+    
             remainder = batch['mel'].shape[-1] % 4
             if remainder:
                 batch['mel'] = batch['mel'][:, :, :-remainder]
@@ -142,24 +132,40 @@ def train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, epochs=20, batch_si
             pass
         return batch
 
-    # Step 5: Run training loop
+    # Step 6: Run training loop
     for epoch in range(epochs):
         for cur_step, batch in enumerate(train_data_loader):
             opt.zero_grad()
             batch = format_batch(batch)
-            recon_loss, commitment_loss, out = dvae(batch['mel'])
-            total_loss = recon_loss + commitment_loss
-            total_loss.backward()
-            clip_grad_norm_(dvae.parameters(), 0.5)
-            opt.step()
+
+            with torch.cuda.amp.autocast(enabled=USE_MIXED_PRECISION):
+                recon_loss, commitment_loss, out = dvae(batch['mel'])
+
+                recon_loss = recon_loss.mean()
+                commitment_loss = commitment_loss.mean()
+                total_loss = recon_loss + commitment_loss
+
+            scaler.scale(total_loss).backward()
+            clip_grad_norm_(dvae.parameters(), GRAD_CLIP_NORM)
+
+            scaler.step(opt)
+            scaler.update()
 
             log = {'epoch': epoch, 'cur_step': cur_step, 'loss': total_loss.item(), 'recon_loss': recon_loss.item(), 'commit_loss': commitment_loss.item()}
-            print(f"Epoch: {epoch}, Step: {cur_step}, Loss: {total_loss.item()}, Recon Loss: {recon_loss.item()}, Commit Loss: {commitment_loss.item()}")
-            wandb.log(log)
-            torch.cuda.empty_cache()
 
-    # Step 6: Save finetuned model
-    torch.save(dvae.state_dict(), 'finetuned_dvae.pth')
+            print(f"Epoch: {epoch}, Step: {cur_step}, Loss: {total_loss.item()}, Recon Loss: {recon_loss.item()}, Commit Loss: {commitment_loss.item()}")
+
+            # Log every 5 epochs
+            # if epoch % 5 == 0:
+            wandb.log(log)
+            # wandb.log(log)
+
+            # torch.cuda.empty_cache()
+
+        # Save finetuned model every few epochs or at the end of training
+        if epoch % 10 == 0 or epoch == epochs - 1:
+            save_path = f'finetuned_dvae_{language}_epoch{epoch}.pth'
+            torch.save(dvae.state_dict(), save_path)
 
 if __name__== "__main__":
-    train_dvae(DVAE_CHECKPOINT, MEL_NORM_FILE, DATASET_PATH, epochs=EPOCHS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, use_custom_dataset=USE_CUSTOM_DATASET)
+    train_dvae(DVAE_CHECKPOINT, MEL_NORM_FILE, DATASET_PATH, EPOCHS, BATCH_SIZE, LEARNING_RATE)
