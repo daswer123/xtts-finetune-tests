@@ -7,28 +7,45 @@ from torch.utils.data import DataLoader
 
 from TTS.tts.datasets import load_tts_samples
 from TTS.config.shared_configs import BaseDatasetConfig
+from TTS.tts.layers.xtts.dvae import DiscreteVAE
 
-from libs.discrete_vae import DiscreteVAE
 from libs.utils import TorchMelSpectrogram
 from libs.dvae_dataset import DVAEDataset
 
+# Define hyperparameters
+DVAE_CHECKPOINT = 'base_model/dvae.pth'
+MEL_NORM_FILE = 'base_model/mel_stats.pth'
+DATASET_PATH = 'dataset_ready'
+USE_CUSTOM_DATASET = True
+EPOCHS = 20
+BATCH_SIZE = 3
+LEARNING_RATE = 5e-05
+
 def load_custom_samples(dataset_path):
-    train_samples = []
-    eval_samples = []
+    """Load custom dataset using TTS load_tts_samples function."""
+    config_dataset = BaseDatasetConfig(
+        formatter="ljspeech",
+        dataset_name="custom_dataset",
+        path=dataset_path,
+        meta_file_train=f"{dataset_path}/metadata_train.txt",
+        meta_file_val=f"{dataset_path}/metadata_eval.txt",
+        language="en",
+    )
 
-    with open(os.path.join(dataset_path, 'metadata_train.txt'), 'r') as f:
-        for line in f:
-            sample = {'audio_file': line.strip()}
-            train_samples.append(sample)
-
-    with open(os.path.join(dataset_path, 'metadata_eval.txt'), 'r') as f:
-        for line in f:
-            sample = {'audio_file': line.strip()}
-            eval_samples.append(sample)
+    DATASETS_CONFIG_LIST = [config_dataset]
+    train_samples, eval_samples = load_tts_samples(
+        DATASETS_CONFIG_LIST,
+        eval_split=True,
+        eval_split_max_size=256,
+        eval_split_size=0.01,
+    )
 
     return train_samples, eval_samples
 
 def train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, epochs=20, batch_size=3, learning_rate=5e-05, use_custom_dataset=False):
+    """Train DVAE model on custom dataset."""
+
+    # Step 1: Load DVAE model
     dvae = DiscreteVAE(
         channels=80,
         normalization=None,
@@ -41,15 +58,16 @@ def train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, epochs=20, batch_si
         num_layers=2,
         use_transposed_convs=False,
     )
-
     dvae.load_state_dict(torch.load(dvae_checkpoint), strict=False)
     dvae.cuda()
 
+    # Step 2: Set up optimizer and mel spectrogram converter
     opt = Adam(dvae.parameters(), lr=learning_rate)
     torch_mel_spectrogram_dvae = TorchMelSpectrogram(
         mel_norm_file=mel_norm_file, sampling_rate=22050
     ).cuda()
 
+    # Step 3: Load dataset
     if use_custom_dataset:
         train_samples, eval_samples = load_custom_samples(dataset_path)
     else:
@@ -92,9 +110,9 @@ def train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, epochs=20, batch_si
         pin_memory=False,
     )
 
+    # Step 4: Set up training
     torch.set_grad_enabled(True)
     dvae.train()
-
     wandb.init(project='train_dvae')
     wandb.watch(dvae)
 
@@ -124,6 +142,7 @@ def train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, epochs=20, batch_si
             pass
         return batch
 
+    # Step 5: Run training loop
     for epoch in range(epochs):
         for cur_step, batch in enumerate(train_data_loader):
             opt.zero_grad()
@@ -139,10 +158,8 @@ def train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, epochs=20, batch_si
             wandb.log(log)
             torch.cuda.empty_cache()
 
-if __name__== "__main__":
-    dvae_checkpoint = 'path/to/dvae_checkpoint.pth'
-    mel_norm_file = 'path/to/mel_stats.pth'
-    dataset_path = 'path/to/dataset'
-    use_custom_dataset = True  # Set to False if you want to use the default dataset
+    # Step 6: Save finetuned model
+    torch.save(dvae.state_dict(), 'finetuned_dvae.pth')
 
-    train_dvae(dvae_checkpoint, mel_norm_file, dataset_path, use_custom_dataset=use_custom_dataset)
+if __name__== "__main__":
+    train_dvae(DVAE_CHECKPOINT, MEL_NORM_FILE, DATASET_PATH, epochs=EPOCHS, batch_size=BATCH_SIZE, learning_rate=LEARNING_RATE, use_custom_dataset=USE_CUSTOM_DATASET)

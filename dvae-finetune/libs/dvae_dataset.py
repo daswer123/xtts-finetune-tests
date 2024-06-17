@@ -1,7 +1,7 @@
 import torch
 import random
 
-from tts.tts.models.xtts import load_audio
+from TTS.tts.models.xtts import load_audio
 
 torch.set_num_threads(1)
 

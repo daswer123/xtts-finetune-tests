@@ -1,6 +1,9 @@
- axial-positional-embedding
- coqui-tts
- einops
- torch
- torchaudio
- 
+axial-positional-embedding
+coqui-tts
+einops
+torch
+torchaudio
+numpy==1.26.2
+ffmpeg-python
+pydub
+wandb
