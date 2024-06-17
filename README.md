@@ -11,6 +11,8 @@ I'm an enthusiast and just testing and trying, don't expect it to work _
 
 ![image](https://github.com/daswer123/xtts-finetune-tests/assets/22278673/e99e4628-6b2e-414a-ab5b-9a9f72a5049f)
 
-# GPT-2 (Work in progress )
+# GPT-2 ( Complete )
+
+https://github.com/daswer123/xtts-finetune-webui
 
 # HifiGAN ( Work in progress )
