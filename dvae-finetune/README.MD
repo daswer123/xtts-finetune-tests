@@ -61,7 +61,7 @@ I made a custom solution for dataset preparation, so keep that in mind.
 
 After you have prepared your dataset:
 
-1. Open the tuner file (`train_dvae.py`) and configure all settings.
+1. Open the tuner file (`dvae_tunner.py`) and configure all settings.
 2. Specify the path to your dataset.
 3. Run the script using:
     ```sh
