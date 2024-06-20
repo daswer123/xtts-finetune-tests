@@ -5,6 +5,8 @@ import torch
 from torch.optim import Adam
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
+from tqdm import tqdm
+from termcolor import colored
 
 from TTS.tts.layers.xtts.dvae import DiscreteVAE
 from utils.utils import TorchMelSpectrogram
@@ -24,7 +26,7 @@ def load_custom_dataset(dataset_path, language):
 
 def train_dvae(args):
     """Train DVAE model on custom dataset."""
-    
+
     # Step 0: Create train folder if not exists
     if not os.path.exists("train"):
         os.makedirs("train")
@@ -123,14 +125,16 @@ def train_dvae(args):
     # Step 5: Run training loop
     best_loss = float('inf')
     best_epoch = -1
-    total_steps = len(train_data_loader)*args.epochs
+    total_steps = len(train_data_loader)*args.epochs*
+    prev_avg_loss = None
 
     for epoch in range(args.epochs):
         epoch_loss = 0
         epoch_recon_loss = 0
         epoch_commit_loss = 0
 
-        for cur_step, batch in enumerate(train_data_loader):
+        progress_bar = tqdm(train_data_loader, desc=f"Epoch {epoch+1}/{args.epochs}")
+        for cur_step, batch in enumerate(progress_bar):
             opt.zero_grad()
             batch = format_batch(batch)
 
@@ -151,8 +155,8 @@ def train_dvae(args):
             epoch_recon_loss += recon_loss.item()
             epoch_commit_loss += commitment_loss.item()
 
-            global_step = epoch*len(train_data_loader) + cur_step + 1
-            print(f"Epoch: {epoch+1}/{args.epochs}, Step: {global_step}/{total_steps}, Loss: {total_loss.item():.4f}, Recon Loss: {recon_loss.item():.4f}, Commit Loss: {commitment_loss.item():.4f}")
+            global_step = epoch*len(train_data_loader) + cur_step + 1*
+            progress_bar.set_postfix(loss=total_loss.item(), recon_loss=recon_loss.item(), commit_loss=commitment_loss.item())
 
             if args.use_wandb:
                 wandb.log({
@@ -168,7 +172,17 @@ def train_dvae(args):
         avg_commit_loss = epoch_commit_loss / len(train_data_loader)
 
         # Print epoch summary
-        print(f"Epoch: {epoch+1}/{args.epochs}, Avg Loss: {avg_loss:.4f}, Avg Recon Loss: {avg_recon_loss:.4f}, Avg Commit Loss: {avg_commit_loss:.4f}")
+        epoch_summary = f"Epoch: {epoch+1}/{args.epochs}"
+        if prev_avg_loss is not None:
+            diff_loss = avg_loss - prev_avg_loss
+            color = 'green' if diff_loss < 0 else 'red'
+            epoch_summary += colored(f", Avg Loss: {avg_loss:.4f} ({diff_loss:.4f})", color)
+        else:
+            epoch_summary += f", Avg Loss: {avg_loss:.4f}"
+
+        epoch_summary += f", Avg Recon Loss: {avg_recon_loss:.4f}, Avg Commit Loss: {avg_commit_loss:.4f}"
+        print(epoch_summary)
+        prev_avg_loss = avg_loss
 
         # Log metrics to wandb (if enabled)
         if args.use_wandb:
@@ -183,7 +197,7 @@ def train_dvae(args):
         if avg_loss < best_loss:
             best_loss = avg_loss
             best_epoch = epoch + 1
-            save_path = f'train/best_dvae_{args.language}.pth'
+            save_path = f'train/best_dvae_{args.language}_epoch{best_epoch}.pth'
             torch.save(dvae.state_dict(), save_path)
             print(f"Saved best model checkpoint at epoch {best_epoch} with loss {best_loss:.4f}")
 

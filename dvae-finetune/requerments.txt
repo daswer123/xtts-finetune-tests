@@ -7,3 +7,4 @@ numpy==1.26.2
 ffmpeg-python
 pydub
 wandb
+termcolor

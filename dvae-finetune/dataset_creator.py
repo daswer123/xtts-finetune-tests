@@ -18,7 +18,10 @@ def split_audio_file(audio_file, output_dir, sample_rate=22050, max_wav_len=11):
     duration = float(audio_info['format']['duration'])
 
     for i in range(0, int(duration), max_wav_len):
-        output_file = os.path.join(output_dir, f"{os.path.splitext(os.path.basename(audio_file))[0]}_{i:04d}.wav")
+        output_file = os.path.join(output_dir, "wavs", f"{os.path.splitext(os.path.basename(audio_file))[0]}_{i:04d}.wav")
+
+        # Create the wavs folder if it doesn't exist
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
         stream = ffmpeg.input(audio_file, ss=i, t=max_wav_len)
         stream = ffmpeg.output(stream, output_file, ar=sample_rate)
@@ -32,7 +35,12 @@ def process_audio_files(input_dir, output_dir, sample_rate=22050, max_wav_len=11
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    audio_files = glob.glob(os.path.join(input_dir, '*.*'))
+    # Get only audiofiles, MP3 WAV FLAC,OPUS,OGG
+    audio_files = glob.glob(os.path.join(input_dir, '*.mp3'))
+    audio_files += glob.glob(os.path.join(input_dir, '*.wav'))
+    audio_files += glob.glob(os.path.join(input_dir, '*.flac'))
+    audio_files += glob.glob(os.path.join(input_dir, '*.opus'))
+    audio_files += glob.glob(os.path.join(input_dir, '*.ogg'))
 
     with ThreadPoolExecutor() as executor:
         futures = [executor.submit(split_audio_file, audio_file, output_dir, sample_rate, max_wav_len) for audio_file in audio_files]
@@ -46,13 +54,13 @@ def create_metadata_files(input_dir, output_dir, train_percent=0.8):
     Creates metadata files (metadata_train.txt and metadata_eval.txt)
     from the processed audio files in the output directory.
     """
-    audio_files = glob.glob(os.path.join(input_dir, '*.wav'))
+    audio_files = glob.glob(os.path.join(input_dir, 'wavs', '*.wav'))
 
     train_metadata = os.path.join(output_dir, 'metadata_train.txt')
     eval_metadata = os.path.join(output_dir, 'metadata_eval.txt')
 
-    train_files = audio_files[:int(len(audio_files) *train_percent)]
-    eval_files = audio_files[int(len(audio_files)* train_percent):]
+    train_files = audio_files[:int(len(audio_files)* train_percent)]
+    eval_files = audio_files[int(len(audio_files) * train_percent):]
 
     with open(train_metadata, 'w') as f:
         f.write('\n'.join(train_files))
