@@ -11,8 +11,8 @@ from utils.utils import TorchMelSpectrogram
 from utils.dvae_dataset import DVAEDataset
 
 def load_custom_dataset(dataset_path, language):
-    metadata_train_file = os.path.join(dataset_path, f'metadata_train_{language}.txt')
-    metadata_eval_file = os.path.join(dataset_path, f'metadata_eval_{language}.txt')
+    metadata_train_file = os.path.join(dataset_path, f'metadata_train.txt')
+    metadata_eval_file = os.path.join(dataset_path, f'metadata_eval.txt')
 
     with open(metadata_train_file, 'r') as f:
         train_samples = [{'audio_file': line.strip(), 'language': language} for line in f]

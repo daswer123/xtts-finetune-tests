@@ -64,7 +64,6 @@ To create the dataset for DVAE fine-tuning, use the `dataset_creator.py` script.
 - `--output_path`: Path to the output directory where the processed dataset will be saved (default: `dataset_ready`).
 - `--language`: Language of the audio files (required).
 - `--train_percent`: Percentage of data to use for training (default: 0.8).
-- `--eval_percent`: Percentage of data to use for evaluation (default: 0.2).
 - `--max_audio_length`: Maximum length of audio chunks in seconds (default: 11).
 - `--sample_rate`: Sample rate of the audio files (default: 22050).
 
@@ -77,7 +76,7 @@ python dataset_creator.py --input_data dataset_raw --language en
 
 **complicated**
 ```
-python dataset_creator.py --input_data dataset_raw --language en --train_percent 0.8 --eval_percent 0.1 --max_audio_length 10 --sample_rate 22050
+python dataset_creator.py --input_data dataset_raw --language en --train_percent 0.8 --max_audio_length 10 --sample_rate 22050
 ```
 
 ## Training
