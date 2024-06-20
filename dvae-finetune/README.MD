@@ -61,8 +61,7 @@ To set up the project for DVAE fine-tuning, follow these steps:
 To create the dataset for DVAE fine-tuning, use the `dataset_creator.py` script. Here are the available command-line flags:
 
 - `--input_data`: Path to the input data directory containing the audio files (required).
-- `--output_path`: Path to the output directory where the processed dataset will be saved (default: `dataset_ready`).
-- `--language`: Language of the audio files (required).
+- `--output_path`: Path to the output directory where the processed dataset will be saved (default: `processed_dataset`).
 - `--train_percent`: Percentage of data to use for training (default: 0.8).
 - `--max_audio_length`: Maximum length of audio chunks in seconds (default: 11).
 - `--sample_rate`: Sample rate of the audio files (default: 22050).
@@ -71,12 +70,12 @@ Example usage:
 
 **simple**
 ```
-python dataset_creator.py --input_data dataset_raw --language en
+python dataset_creator.py --input_data dataset_raw
 ```
 
 **complicated**
 ```
-python dataset_creator.py --input_data dataset_raw --language en --train_percent 0.8 --max_audio_length 10 --sample_rate 22050
+python dataset_creator.py --input_data dataset_raw --train_percent 0.8 --max_audio_length 10 --sample_rate 22050
 ```
 
 ## Training
@@ -85,7 +84,7 @@ To fine-tune the DVAE model on your dataset, use the `train_dvae.py` script. Her
 
 - `--dvae_checkpoint`: Path to the pre-trained DVAE checkpoint (default: `./base_model/dvae.pth`).
 - `--mel_norm_file`: Path to the mel normalization file (default: `./base_model/mel_stats.pth`).
-- `--dataset_path`: Path to the custom dataset (default: `./dataset_ready`).
+- `--dataset_path`: Path to the custom dataset (default: `./processed_dataset`).
 - `--language`: Language of the custom dataset (required).
 - `--epochs`: Number of training epochs (default: 20).
 - `--batch_size`: Batch size for training (default: 10).
@@ -100,12 +99,12 @@ Example usage:
 
 **simple**
 ```
-python train_dvae.py --dataset_path dataset_ready --language en
+python train_dvae.py --dataset_path processed_dataset --language en
 ```
 
 **complicated**
 ```
-python train_dvae.py --dataset_path dataset_ready --language en --epochs 20 --batch_size 8 --learning_rate 5e-05 --use_wandb --save_every 5
+python train_dvae.py --dataset_path processed_dataset --language en --epochs 20 --batch_size 8 --learning_rate 5e-05 --use_wandb --save_every 5
 ```
 
 After training, the best model checkpoint will be saved as `best_dvae_<language>.pth` in the output directory. You can use this fine-tuned DVAE model for further experiments or integrate it into the XTTS pipeline.
