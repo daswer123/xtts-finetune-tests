@@ -102,25 +102,25 @@ def train_dvae(args):
                 x = x.cuda(non_blocking=True)
         return x
 
-    @torch.no_grad()
     def format_batch(batch):
-        if isinstance(batch, dict):
-            for k, v in batch.items():
-                batch[k] = to_cuda(v)
-        elif isinstance(batch, list):
-            batch = [to_cuda(v) for v in batch]
+     if isinstance(batch, dict):
+        for k, v in batch.items():
+            batch[k] = to_cuda(v)
+     elif isinstance(batch, list):
+        batch = [to_cuda(v) for v in batch]
 
-        try:
-            # Переносим вычисление мел-спектрограммы на GPU
-            wavs = to_cuda(batch['wav'])
+     try:
+        # Переносим вычисление мел-спектрограммы на GPU
+        wavs = to_cuda(batch['wav'])
+        with torch.no_grad():
             batch['mel'] = torch_mel_spectrogram_dvae(wavs)
 
-            remainder = batch['mel'].shape[-1] % 4
-            if remainder:
-                batch['mel'] = batch['mel'][:, :, :-remainder]
-        except NotImplementedError:
-            pass
-        return batch
+        remainder = batch['mel'].shape[-1] % 4
+        if remainder:
+            batch['mel'] = torch.nn.functional.pad(batch['mel'], (0, 4 - remainder))
+     except NotImplementedError:
+        pass
+     return batch
 
     # Step 5: Run training loop
     best_loss = float('inf')
