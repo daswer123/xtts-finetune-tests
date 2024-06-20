@@ -25,6 +25,5 @@ Now i'm woking on this suggestions
 > During training, the same sample is giving to the perceiver that needs to be synthesized. What if instead, we keep the speaker (and if applicable other characteristics like emotion) the same but use a sample with different spoken content?
 
 > That way, the model might learn that it is the style from the speaker that has to be picked and it might also work a bit better for out-of-distribution (not sure though).
-```
 
-# HifiGAN ( Work in progress )
+HifiGAN ( No Info )
