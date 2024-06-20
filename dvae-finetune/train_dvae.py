@@ -24,6 +24,10 @@ def load_custom_dataset(dataset_path, language):
 
 def train_dvae(args):
     """Train DVAE model on custom dataset."""
+    
+    # Step 0: Create train folder if not exists
+    if not os.path.exists("train"):
+        os.makedirs("train")
 
     # Step 1: Load DVAE model
     dvae = DiscreteVAE(
@@ -179,13 +183,13 @@ def train_dvae(args):
         if avg_loss < best_loss:
             best_loss = avg_loss
             best_epoch = epoch + 1
-            save_path = f'best_dvae_{args.language}.pth'
+            save_path = f'train/best_dvae_{args.language}.pth'
             torch.save(dvae.state_dict(), save_path)
             print(f"Saved best model checkpoint at epoch {best_epoch} with loss {best_loss:.4f}")
 
         # Save model checkpoint every few epochs
         if (epoch + 1) % args.save_every == 0:
-            save_path = f'finetuned_dvae_{args.language}_epoch{epoch+1}.pth'
+            save_path = f'train/finetuned_dvae_{args.language}_epoch{epoch+1}.pth'
             torch.save(dvae.state_dict(), save_path)
             print(f"Saved model checkpoint at epoch {epoch+1}")
 
@@ -195,7 +199,7 @@ if __name__== "__main__":
     parser = argparse.ArgumentParser(description='Train DVAE model on custom dataset')
     parser.add_argument('--dvae_checkpoint', type=str, default='./base_model/dvae.pth', help='Path to pre-trained DVAE checkpoint')
     parser.add_argument('--mel_norm_file', type=str, default='./base_model/mel_stats.pth', help='Path to mel normalization file')
-    parser.add_argument('--dataset_path', type=str, default='./dataset_ready', help='Path to custom dataset')
+    parser.add_argument('--dataset_path', type=str, default='./processed_dataset', help='Path to custom dataset')
     parser.add_argument('--language', type=str, required=True, help='Language of the custom dataset')
     parser.add_argument('--epochs', type=int, default=20, help='Number of training epochs')
     parser.add_argument('--batch_size', type=int, default=10, help='Batch size for training')
