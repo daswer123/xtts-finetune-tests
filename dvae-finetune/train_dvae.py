@@ -2,6 +2,7 @@ import os
 import json
 import argparse
 import torch
+import torchaudio
 from torch.optim import Adam
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
@@ -23,6 +24,17 @@ def load_custom_dataset(dataset_path, language):
         eval_samples = [{'audio_file': line.strip(), 'language': language} for line in f]
 
     return train_samples, eval_samples
+
+def precompute_mel_spectrograms(dataset, output_dir, torch_mel_spectrogram):
+    os.makedirs(output_dir, exist_ok=True)
+
+    for sample in tqdm(dataset, desc="Computing mel-spectrograms"):
+        audio_file = sample['audio_file']
+        wav, _= torchaudio.load(audio_file)
+        mel = torch_mel_spectrogram(wav.unsqueeze(0)).squeeze(0)
+
+        mel_file = os.path.join(output_dir, f"{os.path.splitext(os.path.basename(audio_file))[0]}.pt")
+        torch.save(mel, mel_file)
 
 def train_dvae(args):
     """Train DVAE model on custom dataset."""
@@ -52,15 +64,21 @@ def train_dvae(args):
 
     # Step 2: Set up optimizer and mel spectrogram converter
     opt = Adam(dvae.parameters(), lr=args.learning_rate)
-    torch_mel_spectrogram_dvae = TorchMelSpectrogram(
+    torch_mel_spectrogram = TorchMelSpectrogram(
         mel_norm_file=args.mel_norm_file, sampling_rate=22050
     ).cuda()
 
     # Step 3: Load dataset
     train_samples, eval_samples = load_custom_dataset(args.dataset_path, args.language)
 
-    eval_dataset = DVAEDataset(eval_samples, 22050, True)
-    train_dataset = DVAEDataset(train_samples, 22050, False)
+    # Step 4: Precompute mel-spectrograms
+    train_mels_dir = os.path.join(args.dataset_path, "mels", "train")
+    eval_mels_dir = os.path.join(args.dataset_path, "mels", "eval")
+    precompute_mel_spectrograms(train_samples, train_mels_dir, torch_mel_spectrogram)
+    precompute_mel_spectrograms(eval_samples, eval_mels_dir, torch_mel_spectrogram)
+
+    eval_dataset = DVAEDataset(eval_samples, eval_mels_dir, 22050, True)
+    train_dataset = DVAEDataset(train_samples, train_mels_dir, 22050, False)
 
     eval_data_loader = DataLoader(
         eval_dataset,
@@ -82,9 +100,7 @@ def train_dvae(args):
         pin_memory=True,
     )
 
-    # Step 4: Set up training with gradient accumulation and profiling (if needed)
-    accumulation_steps = max(1, args.batch_size // args.batch_size)
-
+    # Step 5: Set up training
     torch.set_grad_enabled(True)
     dvae.train()
 
@@ -93,36 +109,7 @@ def train_dvae(args):
         wandb.init(project='train_dvae')
         wandb.watch(dvae)
 
-    def to_cuda(x: torch.Tensor) -> torch.Tensor:
-        if x is None:
-            return None
-        if torch.is_tensor(x):
-            x = x.contiguous()
-            if torch.cuda.is_available():
-                x = x.cuda(non_blocking=True)
-        return x
-
-    @torch.no_grad()
-    def format_batch(batch):
-        if isinstance(batch, dict):
-            for k, v in batch.items():
-                batch[k] = to_cuda(v)
-        elif isinstance(batch, list):
-            batch = [to_cuda(v) for v in batch]
-
-        try:
-            # Переносим вычисление мел-спектрограммы на GPU
-            wavs = to_cuda(batch['wav'])
-            batch['mel'] = torch_mel_spectrogram_dvae(wavs)
-
-            remainder = batch['mel'].shape[-1] % 4
-            if remainder:
-                batch['mel'] = batch['mel'][:, :, :-remainder]
-        except NotImplementedError:
-            pass
-        return batch
-
-    # Step 5: Run training loop
+    # Step 6: Run training loop
     best_loss = float('inf')
     best_epoch = -1
     total_steps = len(train_data_loader)*args.epochs
@@ -136,10 +123,9 @@ def train_dvae(args):
         progress_bar = tqdm(train_data_loader, desc=f"Epoch {epoch+1}/{args.epochs}")
         for cur_step, batch in enumerate(progress_bar):
             opt.zero_grad()
-            batch = format_batch(batch)
 
             with torch.cuda.amp.autocast(enabled=args.use_mixed_precision):
-                recon_loss, commitment_loss, out = dvae(batch['mel'])
+                recon_loss, commitment_loss, out = dvae(batch['mel'].cuda())
 
                 recon_loss = recon_loss.mean()
                 commitment_loss = commitment_loss.mean()

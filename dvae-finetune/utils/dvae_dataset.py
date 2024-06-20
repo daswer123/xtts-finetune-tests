@@ -1,19 +1,17 @@
+import os
 import torch
 import random
 
-from TTS.tts.models.xtts import load_audio
-
-torch.set_num_threads(1)
-
 class DVAEDataset(torch.utils.data.Dataset):
-    def __init__(self, samples, sample_rate, is_eval):
+    def __init__(self, samples, mels_dir, sample_rate, is_eval):
         self.sample_rate = sample_rate
         self.is_eval = is_eval
         self.max_wav_len = 255995
         self.samples = samples
+        self.mels_dir = mels_dir
         self.training_seed = 1
         self.failed_samples = set()
-        
+
         if not is_eval:
             random.seed(self.training_seed)
             random.shuffle(self.samples)
@@ -27,10 +25,10 @@ class DVAEDataset(torch.utils.data.Dataset):
         new_samples = []
         for sample in self.samples:
             try:
-                _, wav = self.load_item(sample)
+                _, mel = self.load_item(sample)
             except:
                 continue
-            if wav is None or (self.max_wav_len is not None and wav.shape[-1] > self.max_wav_len):
+            if mel is None:
                 continue
             new_samples.append(sample)
         self.samples = new_samples
@@ -38,10 +36,9 @@ class DVAEDataset(torch.utils.data.Dataset):
 
     def load_item(self, sample):
         audiopath = sample["audio_file"]
-        wav = load_audio(audiopath, self.sample_rate)
-        if wav is None or wav.shape[-1] < (0.5 *self.sample_rate):
-            raise ValueError
-        return audiopath, wav
+        mel_file = os.path.join(self.mels_dir, f"{os.path.splitext(os.path.basename(audiopath))[0]}.pt")
+        mel = torch.load(mel_file)
+        return audiopath, mel
 
     def __getitem__(self, index):
         if self.is_eval:
@@ -57,18 +54,18 @@ class DVAEDataset(torch.utils.data.Dataset):
             return self[1]
 
         try:
-            audiopath, wav = self.load_item(sample)
+            audiopath, mel = self.load_item(sample)
         except:
             self.failed_samples.add(sample_id)
             return self[1]
 
-        if wav is None or (self.max_wav_len is not None and wav.shape[-1] > self.max_wav_len):
+        if mel is None:
             self.failed_samples.add(sample_id)
             return self[1]
 
         res = {
-            "wav": wav,
-            "wav_lengths": torch.tensor(wav.shape[-1], dtype=torch.long),
+            "mel": mel,
+            "mel_lengths": torch.tensor(mel.shape[-1], dtype=torch.long),
             "filenames": audiopath,
         }
         return res
@@ -81,13 +78,13 @@ class DVAEDataset(torch.utils.data.Dataset):
     def collate_fn(self, batch):
         B = len(batch)
         batch = {k: [dic[k] for dic in batch] for k in batch[0]}
-        batch["wav_lengths"] = torch.stack(batch["wav_lengths"])
-        max_wav_len = batch["wav_lengths"].max()
-        wav_padded = torch.FloatTensor(B, 1, max_wav_len).zero_()
+        batch["mel_lengths"] = torch.stack(batch["mel_lengths"])
+        max_mel_len = batch["mel_lengths"].max()
+        mel_padded = torch.FloatTensor(B, batch["mel"][0].shape[0], max_mel_len).zero_()
         for i in range(B):
-            wav = batch["wav"][i]
-            wav_padded[i, :, : batch["wav_lengths"][i]] = torch.FloatTensor(wav)
-        batch["wav"] = wav_padded
+            mel = batch["mel"][i]
+            mel_padded[i, :, : batch["mel_lengths"][i]] = mel
+        batch["mel"] = mel_padded
         return batch
 
     def key_samples_by_col(self, samples, col_name):
