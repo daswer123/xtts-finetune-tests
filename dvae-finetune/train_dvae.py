@@ -102,7 +102,6 @@ def train_dvae(args):
                 x = x.cuda(non_blocking=True)
         return x
 
-    @torch.no_grad()
     def format_batch(batch):
         if isinstance(batch, dict):
             for k, v in batch.items():
@@ -113,21 +112,21 @@ def train_dvae(args):
         try:
             # Переносим вычисление мел-спектрограммы на GPU
             wavs = to_cuda(batch['wav'])
-            batch['mel'] = torch_mel_spectrogram_dvae(wavs)
+            with torch.no_grad():
+                batch['mel'] = torch_mel_spectrogram_dvae(wavs)
 
             remainder = batch['mel'].shape[-1] % 4
             if remainder:
-                batch['mel'] = batch['mel'][:, :, :-remainder]
+                batch['mel'] = torch.nn.functional.pad(batch['mel'], (0, 4 - remainder))
         except NotImplementedError:
             pass
         return batch
 
     # Step 5: Run training loop
     best_loss = float('inf')
-    best_epoch = -1
+    best_epoch = None
     total_steps = len(train_data_loader)*args.epochs
-    prev_avg_loss = None
-
+    prev_values = {}
     for epoch in range(args.epochs):
         epoch_loss = 0
         epoch_recon_loss = 0
@@ -171,18 +170,19 @@ def train_dvae(args):
         avg_recon_loss = epoch_recon_loss / len(train_data_loader)
         avg_commit_loss = epoch_commit_loss / len(train_data_loader)
 
-        # Print epoch summary
-        epoch_summary = f"Epoch: {epoch+1}/{args.epochs}"
-        if prev_avg_loss is not None:
-            diff_loss = avg_loss - prev_avg_loss
-            color = 'green' if diff_loss < 0 else 'red'
-            epoch_summary += colored(f", Avg Loss: {avg_loss:.4f} ({diff_loss:.4f})", color)
-        else:
-            epoch_summary += f", Avg Loss: {avg_loss:.4f}"
+        # Print epoch summary with colored differences
+        epoch_summary = f"Epoch: {epoch+1}/{args.epochs}, Global Step: {global_step}/{total_steps}"
 
-        epoch_summary += f", Avg Recon Loss: {avg_recon_loss:.4f}, Avg Commit Loss: {avg_commit_loss:.4f}"
+        for metric, value in [('Avg Loss', avg_loss), ('Avg Recon Loss', avg_recon_loss), ('Avg Commit Loss', avg_commit_loss)]:
+            if metric in prev_values:
+                diff = value - prev_values[metric]
+                color = 'green' if diff < 0 else 'red'
+                epoch_summary += colored(f", {metric}: {value:.4f} ({diff:.4f})", color)
+            else:
+                epoch_summary += f", {metric}: {value:.4f}"
+            prev_values[metric] = value
+
         print(epoch_summary)
-        prev_avg_loss = avg_loss
 
         # Log metrics to wandb (if enabled)
         if args.use_wandb:
@@ -197,7 +197,7 @@ def train_dvae(args):
         if avg_loss < best_loss:
             best_loss = avg_loss
             best_epoch = epoch + 1
-            save_path = f'train/best_dvae_{args.language}_epoch{best_epoch}.pth'
+            save_path = f'train/best_dvae_{args.language}.pth'
             torch.save(dvae.state_dict(), save_path)
             print(f"Saved best model checkpoint at epoch {best_epoch} with loss {best_loss:.4f}")
 
