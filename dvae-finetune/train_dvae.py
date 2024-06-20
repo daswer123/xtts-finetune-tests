@@ -8,10 +8,25 @@ from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from termcolor import colored
+from prettytable import PrettyTable
+import logging
+
+import bitsandbytes as bnb
 
 from TTS.tts.layers.xtts.dvae import DiscreteVAE
 from utils.utils import TorchMelSpectrogram
 from utils.dvae_dataset import DVAEDataset
+
+def setup_logging(log_file):
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger(__name__)
 
 def load_custom_dataset(dataset_path, language):
     metadata_train_file = os.path.join(dataset_path, f'metadata_train.txt')
@@ -30,7 +45,7 @@ def precompute_mel_spectrograms(dataset, output_dir, torch_mel_spectrogram):
 
     for sample in tqdm(dataset, desc="Computing mel-spectrograms"):
         audio_file = sample['audio_file']
-        wav, _= torchaudio.load(audio_file)
+        wav,_ = torchaudio.load(audio_file)
         mel = torch_mel_spectrogram(wav.unsqueeze(0)).squeeze(0)
 
         mel_file = os.path.join(output_dir, f"{os.path.splitext(os.path.basename(audio_file))[0]}.pt")
@@ -38,6 +53,8 @@ def precompute_mel_spectrograms(dataset, output_dir, torch_mel_spectrogram):
 
 def train_dvae(args):
     """Train DVAE model on custom dataset."""
+
+    logger = setup_logging("train_log.log")
 
     # Step 0: Create train folder if not exists
     if not os.path.exists("train"):
@@ -63,7 +80,7 @@ def train_dvae(args):
     scaler = torch.cuda.amp.GradScaler(enabled=args.use_mixed_precision)
 
     # Step 2: Set up optimizer and mel spectrogram converter
-    opt = Adam(dvae.parameters(), lr=args.learning_rate)
+    opt = bnb.optim.Adam8bit(dvae.parameters(), lr=args.learning_rate)
     torch_mel_spectrogram = TorchMelSpectrogram(
         mel_norm_file=args.mel_norm_file, sampling_rate=22050
     ).cuda()
@@ -88,6 +105,7 @@ def train_dvae(args):
         collate_fn=eval_dataset.collate_fn,
         num_workers=args.num_workers // 2,
         pin_memory=True,
+        persistent_workers=True
     )
 
     train_data_loader = DataLoader(
@@ -98,6 +116,7 @@ def train_dvae(args):
         collate_fn=train_dataset.collate_fn,
         num_workers=args.num_workers,
         pin_memory=True,
+        persistent_workers=True
     )
 
     # Step 5: Set up training
@@ -110,10 +129,19 @@ def train_dvae(args):
         wandb.watch(dvae)
 
     # Step 6: Run training loop
-    best_loss = float('inf')
-    best_epoch = -1
-    total_steps = len(train_data_loader)*args.epochs
-    prev_avg_loss = None
+    best_metrics = {
+        'loss': float('inf'),
+        'recon_loss': float('inf'),
+        'commit_loss': float('inf'),
+        'epoch': -1
+    }
+    total_steps = len(train_data_loader) * args.epochs
+
+    # Create a table to display metrics
+    metrics_table = PrettyTable()
+    metrics_table.field_names = ["Epoch", "Avg Loss", "Avg Recon Loss", "Avg Commit Loss"]
+
+    global_step = 0
 
     for epoch in range(args.epochs):
         epoch_loss = 0
@@ -141,8 +169,8 @@ def train_dvae(args):
             epoch_recon_loss += recon_loss.item()
             epoch_commit_loss += commitment_loss.item()
 
-            global_step = epoch*len(train_data_loader) + cur_step + 1
-            progress_bar.set_postfix(loss=total_loss.item(), recon_loss=recon_loss.item(), commit_loss=commitment_loss.item())
+            global_step += 1
+            progress_bar.set_postfix(step=f"{cur_step+1}/{len(train_data_loader)}", global_step=global_step, loss=total_loss.item(), recon_loss=recon_loss.item(), commit_loss=commitment_loss.item())
 
             if args.use_wandb:
                 wandb.log({
@@ -157,18 +185,44 @@ def train_dvae(args):
         avg_recon_loss = epoch_recon_loss / len(train_data_loader)
         avg_commit_loss = epoch_commit_loss / len(train_data_loader)
 
-        # Print epoch summary
-        epoch_summary = f"Epoch: {epoch+1}/{args.epochs}"
-        if prev_avg_loss is not None:
-            diff_loss = avg_loss - prev_avg_loss
-            color = 'green' if diff_loss < 0 else 'red'
-            epoch_summary += colored(f", Avg Loss: {avg_loss:.4f} ({diff_loss:.4f})", color)
-        else:
-            epoch_summary += f", Avg Loss: {avg_loss:.4f}"
+        # Update the best metrics if the current epoch is better
+        if avg_loss < best_metrics['loss']:
+            best_metrics['loss'] = avg_loss
+            best_metrics['recon_loss'] = avg_recon_loss
+            best_metrics['commit_loss'] = avg_commit_loss
+            best_metrics['epoch'] = epoch + 1
 
-        epoch_summary += f", Avg Recon Loss: {avg_recon_loss:.4f}, Avg Commit Loss: {avg_commit_loss:.4f}"
-        print(epoch_summary)
-        prev_avg_loss = avg_loss
+        # Add metrics to the table
+        metrics_row = [epoch+1, f"{avg_loss:.4f}", f"{avg_recon_loss:.4f}", f"{avg_commit_loss:.4f}"]
+
+        # Compare with the best metrics and highlight the differences
+        if epoch + 1 == best_metrics['epoch']:
+            metrics_row[1] = colored(metrics_row[1], 'green')
+            metrics_row[2] = colored(metrics_row[2], 'green')
+            metrics_row[3] = colored(metrics_row[3], 'green')
+        else:
+            if avg_loss < best_metrics['loss']:
+                metrics_row[1] = colored(metrics_row[1], 'green')
+            else:
+                metrics_row[1] = colored(metrics_row[1], 'white')
+
+            if avg_recon_loss < best_metrics['recon_loss']:
+                metrics_row[2] = colored(metrics_row[2], 'green')
+            else:
+                metrics_row[2] = colored(metrics_row[2], 'white')
+
+            if avg_commit_loss < best_metrics['commit_loss']:
+                metrics_row[3] = colored(metrics_row[3], 'green')
+            else:
+                metrics_row[3] = colored(metrics_row[3], 'white')
+
+        metrics_table.add_row(metrics_row)
+
+        # Save the best model checkpoint
+        if avg_loss < best_metrics['loss']:
+            save_path = f'train/best_dvae_{args.language}.pth'
+            torch.save(dvae, save_path)
+            logger.info(f"Saved best model checkpoint at epoch {best_metrics['epoch']} with loss {best_metrics['loss']:.4f}")
 
         # Log metrics to wandb (if enabled)
         if args.use_wandb:
@@ -179,21 +233,21 @@ def train_dvae(args):
                 'avg_commit_loss': avg_commit_loss
             })
 
-        # Save best model checkpoint
-        if avg_loss < best_loss:
-            best_loss = avg_loss
-            best_epoch = epoch + 1
-            save_path = f'train/best_dvae_{args.language}_epoch{best_epoch}.pth'
-            torch.save(dvae.state_dict(), save_path)
-            print(f"Saved best model checkpoint at epoch {best_epoch} with loss {best_loss:.4f}")
-
         # Save model checkpoint every few epochs
         if (epoch + 1) % args.save_every == 0:
             save_path = f'train/finetuned_dvae_{args.language}_epoch{epoch+1}.pth'
-            torch.save(dvae.state_dict(), save_path)
-            print(f"Saved model checkpoint at epoch {epoch+1}")
+            torch.save(dvae, save_path)
+            logger.info(f"Saved model checkpoint at epoch {epoch+1}")
 
-    print(f"Training completed. Best model found at epoch {best_epoch} with loss {best_loss:.4f}")
+        # Log the metrics table after each epoch
+        logger.info("\nTraining metrics:")
+        logger.info(str(metrics_table))
+
+    logger.info(f"\nBest metrics achieved at epoch {best_metrics['epoch']}:")
+    logger.info(f"Loss: {best_metrics['loss']:.4f}")
+    logger.info(f"Reconstruction Loss: {best_metrics['recon_loss']:.4f}")
+    logger.info(f"Commitment Loss: {best_metrics['commit_loss']:.4f}")
+
 
 if __name__== "__main__":
     parser = argparse.ArgumentParser(description='Train DVAE model on custom dataset')

@@ -8,3 +8,5 @@ ffmpeg-python
 pydub
 wandb
 termcolor
+prettytable
+bitsandbytes
