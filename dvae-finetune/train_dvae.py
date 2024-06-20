@@ -125,7 +125,7 @@ def train_dvae(args):
     # Step 5: Run training loop
     best_loss = float('inf')
     best_epoch = -1
-    total_steps = len(train_data_loader)*args.epochs*
+    total_steps = len(train_data_loader)*args.epochs
     prev_avg_loss = None
 
     for epoch in range(args.epochs):
@@ -155,7 +155,7 @@ def train_dvae(args):
             epoch_recon_loss += recon_loss.item()
             epoch_commit_loss += commitment_loss.item()
 
-            global_step = epoch*len(train_data_loader) + cur_step + 1*
+            global_step = epoch*len(train_data_loader) + cur_step + 1
             progress_bar.set_postfix(loss=total_loss.item(), recon_loss=recon_loss.item(), commit_loss=commitment_loss.item())
 
             if args.use_wandb:
