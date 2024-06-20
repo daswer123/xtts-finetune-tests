@@ -1,29 +1,39 @@
-In this repository I will be posting code that I think can be used to filetune various parts of xtts.
+# XTTS Fine-tuning Repository
 
-I'm an enthusiast and just testing and trying, don't expect it to work _
+In this repository, I will be posting code that I think can be used to fine-tune various parts of XTTS.
 
-# Dvae ( Complete )
-## Development is completed scripts are written, more details [here](https://github.com/daswer123/xtts-finetune-tests/tree/main/dvae-finetune)
+I'm an enthusiast and just testing and trying, so don't expect everything to work perfectly. 😄
 
-1. The basic idea is taken from here https://github.com/coqui-ai/TTS/issues/3704
+## DVAE - ✅ Complete
+
+The development of DVAE fine-tuning scripts is completed. You can find more details and instructions in the [dvae-finetune](https://github.com/daswer123/xtts-finetune-tests/tree/main/dvae-finetune) directory.
+
+The basic idea for DVAE fine-tuning is taken from this [GitHub issue](https://github.com/coqui-ai/TTS/issues/3704).
 
 ### Example
 
-![image](https://github.com/daswer123/xtts-finetune-tests/assets/22278673/e99e4628-6b2e-414a-ab5b-9a9f72a5049f)
+![DVAE Fine-tuning Example](https://github.com/daswer123/xtts-finetune-tests/assets/22278673/e99e4628-6b2e-414a-ab5b-9a9f72a5049f)
 
-# GPT-2 ( Work in progress )
+## GPT-2 ( XTTS Encoder ) - 🚧 Work in Progress
 
-Original train recipe you can find here: https://github.com/daswer123/xtts-finetune-webui
+The original training recipe for GPT-2 fine-tuning can be found in the [xtts-finetune-webui](https://github.com/daswer123/xtts-finetune-webui) repository.
 
-Now i'm woking on this suggestions
+Currently, I'm working on incorporating the following suggestions:
 
-> Few things I have observed:
+- Improving speaker conditioning for out-of-training data samples/speakers.
+- Modifying the training recipe to make the model more robust.
+- Exploring the use of different spoken content while keeping the speaker characteristics the same during training.
 
-> Currently the speaker conditioning does not work well for out of training data samples/speakers.
-> One of the ways to make the model more robust in this to change the training recipe a bit. Currently the ljspeech data loader completely ignores speaker information.
+The goal is to enhance the model's ability to capture speaker style and improve performance on out-of-distribution samples.
 
-> During training, the same sample is giving to the perceiver that needs to be synthesized. What if instead, we keep the speaker (and if applicable other characteristics like emotion) the same but use a sample with different spoken content?
+## HifiGAN ( XTTS Decoder ) - ❓ No Info
 
-> That way, the model might learn that it is the style from the speaker that has to be picked and it might also work a bit better for out-of-distribution (not sure though).
+At the moment, there is no specific information or code available for fine-tuning the HifiGAN component of XTTS.
 
-HifiGAN ( No Info )
+## Getting Started
+
+To get started with XTTS fine-tuning, please refer to the individual directories for each component. Each directory contains a separate README file with specific instructions, requirements, and examples for fine-tuning the respective component.
+
+Feel free to explore, experiment, and contribute to this repository. If you have any questions or suggestions, don't hesitate to reach out.
+
+Happy fine-tuning! 😊
