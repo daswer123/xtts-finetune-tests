@@ -16,6 +16,7 @@ import bitsandbytes as bnb
 from TTS.tts.layers.xtts.dvae import DiscreteVAE
 from utils.utils import TorchMelSpectrogram
 from utils.dvae_dataset import DVAEDataset
+from utils.download_base_files import download_base_files
 
 def setup_logging(log_file):
     logging.basicConfig(
@@ -55,6 +56,9 @@ def train_dvae(args):
     """Train DVAE model on custom dataset."""
 
     logger = setup_logging("train_log.log")
+    
+    # Download base files
+    download_base_files()
 
     # Step 0: Create train folder if not exists
     if not os.path.exists("train"):
