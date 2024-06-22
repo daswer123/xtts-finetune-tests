@@ -10,7 +10,6 @@ def split_audio_file(audio_file, output_dir, sample_rate=22050, max_wav_len=11):
     """
     print(f'Splitting {audio_file}')
 
-    # Skip audio files with .json extension
     if audio_file.endswith(".json"):
         return
 
@@ -20,12 +19,11 @@ def split_audio_file(audio_file, output_dir, sample_rate=22050, max_wav_len=11):
     for i in range(0, int(duration), max_wav_len):
         output_file = os.path.join(output_dir, "wavs", f"{os.path.splitext(os.path.basename(audio_file))[0]}_{i:04d}.wav")
 
-        # Create the wavs folder if it doesn't exist
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
         stream = ffmpeg.input(audio_file, ss=i, t=max_wav_len)
-        stream = ffmpeg.output(stream, output_file, ar=sample_rate)
-        ffmpeg.run(stream)
+        stream = ffmpeg.output(stream, output_file, ar=sample_rate, ac=1)  # ac=1 для монофонического вывода
+        ffmpeg.run(stream, overwrite_output=True)
 
 def process_audio_files(input_dir, output_dir, sample_rate=22050, max_wav_len=11):
     """
@@ -35,19 +33,15 @@ def process_audio_files(input_dir, output_dir, sample_rate=22050, max_wav_len=11
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    # Get only audiofiles, MP3 WAV FLAC,OPUS,OGG
-    audio_files = glob.glob(os.path.join(input_dir, '*.mp3'))
-    audio_files += glob.glob(os.path.join(input_dir, '*.wav'))
-    audio_files += glob.glob(os.path.join(input_dir, '*.flac'))
-    audio_files += glob.glob(os.path.join(input_dir, '*.opus'))
-    audio_files += glob.glob(os.path.join(input_dir, '*.ogg'))
+    audio_files = []
+    for ext in ['*.mp3', '*.wav', '*.flac', '*.opus', '*.ogg']:
+        audio_files.extend(glob.glob(os.path.join(input_dir, ext)))
 
     with ThreadPoolExecutor() as executor:
         futures = [executor.submit(split_audio_file, audio_file, output_dir, sample_rate, max_wav_len) for audio_file in audio_files]
 
         for future in futures:
             future.result()
-            print(f'Processed {future}')
 
 def create_metadata_files(input_dir, output_dir, train_percent=0.8):
     """
