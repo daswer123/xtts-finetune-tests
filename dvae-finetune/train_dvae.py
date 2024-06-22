@@ -45,13 +45,8 @@ def precompute_mel_spectrograms(dataset, output_dir, torch_mel_spectrogram):
 
     for sample in tqdm(dataset, desc="Computing mel-spectrograms"):
         audio_file = sample['audio_file']
-        wav, sr = torchaudio.load(audio_file)
-        if wav.dim() > 2:
-            wav = wav.mean(dim=0)
-        elif wav.dim() == 1:
-            wav = wav.unsqueeze(0)
-        mel = torch_mel_spectrogram(wav)
-
+        wav,_ = torchaudio.load(audio_file)
+        mel = torch_mel_spectrogram(wav.unsqueeze(0)).squeeze(0)
 
         mel_file = os.path.join(output_dir, f"{os.path.splitext(os.path.basename(audio_file))[0]}.pt")
         torch.save(mel, mel_file)
